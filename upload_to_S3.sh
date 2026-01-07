@@ -46,8 +46,7 @@ fi
 # Project code (exclude large datasets / images; keep package code and scripts).
 aws "${aws_args[@]}" s3 sync "${SCRIPT_DIR}/prosst" "${base_uri%/}/prosst" \
   --only-show-errors "${aws_dryrun[@]}" \
-  --exclude "*__pycache__*" --exclude "*.pyc" \
-  --exclude "structure/static/*"
+  --exclude "*__pycache__*" --exclude "*.pyc"
 
 aws "${aws_args[@]}" s3 cp "${SCRIPT_DIR}/infer.py" "${base_uri%/}/infer.py" --only-show-errors "${aws_dryrun[@]}"
 aws "${aws_args[@]}" s3 cp "${SCRIPT_DIR}/requirements.txt" "${base_uri%/}/requirements.txt" --only-show-errors "${aws_dryrun[@]}"

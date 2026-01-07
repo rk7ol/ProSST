@@ -14,6 +14,7 @@ sequence length L. Provide it via ONE of:
   - `--structure_seq_path`: a FASTA whose sequence is "i0,i1,...,i(L-1)"
   - `--structure_dir`: directory containing `{protein}.fasta` (default protein=CSV stem)
   - a CSV column (default `structure_sequence`) containing the same comma-separated ints
+  - or `--pdb_path` to generate SST via SSTPredictor (matches notebook)
 
 Expected input columns:
   - `mutant`: e.g. "A123G" or multi-mutants like "A123G:D200N" (1-based positions)
@@ -172,6 +173,8 @@ def _resolve_structure_sequence(
     structure_dir: str | None,
     structure_fasta: str | None,
     structure_col: str,
+    pdb_path: str | None,
+    structure_vocab_size: int,
 ) -> list[int]:
     if structure_seq_path:
         return parse_structure_sequence(read_fasta_sequence(Path(structure_seq_path)))
@@ -185,9 +188,24 @@ def _resolve_structure_sequence(
         val = df[structure_col].iloc[0]
         return parse_structure_sequence(val)
 
+    if pdb_path:
+        resolved_pdb = Path(pdb_path)
+        if not resolved_pdb.exists():
+            raise FileNotFoundError(f"PDB/CIF not found: {pdb_path}")
+        from prosst.structure.get_sst_seq import SSTPredictor
+
+        predictor = SSTPredictor(structure_vocab_size=structure_vocab_size)
+        result = predictor.predict_from_pdb(str(resolved_pdb))
+        if not result:
+            raise ValueError(f"Failed to generate SST from PDB: {resolved_pdb}")
+        key = f"{structure_vocab_size}_sst_seq"
+        if key not in result[0]:
+            raise ValueError(f"Missing '{key}' in SSTPredictor output for {resolved_pdb}")
+        return result[0][key]
+
     raise ValueError(
-        "Missing structure sequence. Provide one of: "
-        "--structure_seq_path, --structure_dir, or a CSV column via --structure_col."
+        "Missing structure sequence. Provide one of: --structure_seq_path, "
+        "--structure_dir, a CSV column via --structure_col, or --pdb_path to compute SST."
     )
 
 
@@ -205,6 +223,8 @@ def run_one_csv(
     structure_dir: str | None,
     structure_fasta: str | None,
     structure_col: str,
+    pdb_path: str | None,
+    structure_vocab_size: int,
     score_col: str,
 ) -> dict:
     df = pd.read_csv(csv_path)
@@ -236,6 +256,8 @@ def run_one_csv(
         structure_dir=structure_dir,
         structure_fasta=structure_fasta,
         structure_col=structure_col,
+        pdb_path=pdb_path,
+        structure_vocab_size=structure_vocab_size,
     )
     if not structure_sequence:
         raise ValueError(f"{csv_path.name}: empty structure sequence")
@@ -255,7 +277,6 @@ def run_one_csv(
         input_ids=input_ids,
         attention_mask=attention_mask,
         ss_input_ids=ss_input_ids,
-        labels=input_ids,
     )
 
     log_probs = torch.log_softmax(outputs.logits[:, 1:-1, :], dim=-1)[0]
@@ -330,6 +351,8 @@ def main() -> None:
     p.add_argument("--structure_dir", default=None, help="Directory containing `{protein}.fasta` SST sequences.")
     p.add_argument("--structure_fasta", default=None, help="Override SST fasta filename within --structure_dir.")
     p.add_argument("--structure_col", default="structure_sequence", help="CSV column name for SST sequence.")
+    p.add_argument("--pdb_path", default=None, help="PDB/CIF path used to generate SST if no SST is provided.")
+    p.add_argument("--structure_vocab_size", type=int, default=2048)
 
     p.add_argument("--device", default=None, help="Override device: cuda/cpu (default: auto).")
     p.add_argument("--score_col", default="prosst_delta_logp")
@@ -368,6 +391,8 @@ def main() -> None:
                 structure_dir=args.structure_dir,
                 structure_fasta=args.structure_fasta,
                 structure_col=str(args.structure_col),
+                pdb_path=args.pdb_path,
+                structure_vocab_size=int(args.structure_vocab_size),
                 score_col=str(args.score_col),
             )
         )
@@ -379,4 +404,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
